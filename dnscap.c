@@ -288,6 +288,7 @@ static void endpoint_arg(endpoint_list *, const char *);
 static void endpoint_add(endpoint_list *, iaddr);
 static void prepare_bpft(void);
 static const char *ia_str(iaddr);
+char *ia_str_r(iaddr);
 static int ep_present(const endpoint_list *, iaddr);
 static size_t text_add(text_list *, const char *, ...);
 static void text_free(text_list *);
@@ -522,7 +523,7 @@ help_2(void) {
 		"\t-p         do not put interface in promiscuous mode\n"
 		"\t-d         dump verbose trace information to stderr\n"
 		"\t-1         flush output on every packet\n"
-		"\t-g         dump packets dig-style on stderr\n"
+		"\t-g         dump packets BIND-like-style on stdout\n"
 		"\t-6         compensate for PCAP/BPF IPv6 bug\n"
 		"\t-f         include fragmented packets\n"
 		"\t-T         include TCP packets (DNS header filters will inspect only the\n"
@@ -1192,6 +1193,16 @@ ia_str(iaddr ia) {
 	static char ret[sizeof "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"];
 
 	(void) inet_ntop(ia.af, &ia.u, ret, sizeof ret);
+	return (ret);
+}
+
+char *
+ia_str_r(iaddr ia) {
+	char *ret;
+
+	ret = (char *) malloc(sizeof "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+
+	(void) inet_ntop(ia.af, &ia.u, ret, sizeof "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
 	return (ret);
 }
 
@@ -2152,19 +2163,26 @@ output(const char *descr, iaddr from, iaddr to, uint8_t proto, int isfrag,
     const u_char *dnspkt, unsigned dnslen)
 {
 	struct plugin *p;
+	char *from_s, *to_s;
 	/* Output stage. */
 	if (preso) {
-		fputs(descr, stderr);
+		// fputs(descr, stderr);
 		if (isfrag) {
 			fprintf(stderr, ";: [%s] ", ia_str(from));
 			fprintf(stderr, "-> [%s] (frag)\n", ia_str(to));
 		} else {
-			fprintf(stderr, "\t[%s].%u ", ia_str(from), sport);
-			fprintf(stderr, "[%s].%u ", ia_str(to), dport);
+			//fprintf(stderr, "\t[%s].%u ", ia_str(from), sport);
+			//fprintf(stderr, "[%s].%u ", ia_str(to), dport);
 			if (dnspkt)
-			    dump_dns(dnspkt, dnslen, stderr, "\\\n\t");
+			{
+				from_s = ia_str_r(from);
+				to_s = ia_str_r(to);
+			    dump_dns(dnspkt, dnslen, stdout, "\\\n\t", from_s, to_s, sport, dport);
+				free(from_s);
+				free(to_s);
+			}
 		}
-		putc('\n', stderr);
+		putc('\n', stdout);
 	} else
 	if (dump_type != nowhere) {
 		struct pcap_pkthdr h;

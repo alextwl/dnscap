@@ -5,4 +5,5 @@
 
 void
 dump_dns(const u_char *payload, size_t paylen,
-	  FILE *trace, const char *endline);
+	  FILE *trace, const char *endline,
+	  char *from, char *to, unsigned sport, unsigned dport);

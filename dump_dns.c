@@ -89,13 +89,15 @@ static void dump_dns_rr(ns_msg *, ns_rr *, ns_sect, FILE *);
 
 void
 dump_dns(const u_char *payload, size_t paylen,
-	  FILE *trace, const char *endline)
+	  FILE *trace, const char *endline,
+	  char *from, char *to, unsigned sport, unsigned dport)
 {
 	u_int opcode, rcode, id;
 	const char *sep;
+	const char endline_s[] = "";
 	ns_msg msg;
 
-	fprintf(trace, " %sdns ", endline);
+	//fprintf(trace, " %sdns ", endline);
 	if (ns_initparse(payload, paylen, &msg) < 0) {
 		fputs(strerror(errno), trace);
 		return;
@@ -103,25 +105,46 @@ dump_dns(const u_char *payload, size_t paylen,
 	opcode = ns_msg_getflag(msg, ns_f_opcode);
 	rcode = ns_msg_getflag(msg, ns_f_rcode);
 	id = ns_msg_id(msg);
-	fprintf(trace, "%s,%s,%u", p_opcode(opcode), p_rcode(rcode), id);
-	sep = ",";
+	//fprintf(trace, "%s,%s,%u", p_opcode(opcode), p_rcode(rcode), id);
+	
+	fprintf(trace, "dns qid %u", id);
+
+	if (ns_msg_getflag(msg, ns_f_qr))
+	{
+		fprintf(trace, " to %s#%u: [%s qr", to, dport, p_rcode(rcode));
 #define FLAG(t,f) if (ns_msg_getflag(msg, f)) { \
 			fprintf(trace, "%s%s", sep, t); \
-			sep = "|"; \
+			sep = ","; \
 		  }
-	FLAG("qr", ns_f_qr);
-	FLAG("aa", ns_f_aa);
-	FLAG("tc", ns_f_tc);
-	FLAG("rd", ns_f_rd);
-	FLAG("ra", ns_f_ra);
-	FLAG("z", ns_f_z);
-	FLAG("ad", ns_f_ad);
-	FLAG("cd", ns_f_cd);
+		//FLAG("qr", ns_f_qr);
+		FLAG("aa", ns_f_aa);
+		FLAG("tc", ns_f_tc);
+		FLAG("rd", ns_f_rd);
+		FLAG("ra", ns_f_ra);
+		FLAG("z", ns_f_z);
+		FLAG("ad", ns_f_ad);
+		FLAG("cd", ns_f_cd);
 #undef FLAG
+		fprintf(trace, "] response:");
+		dump_dns_sect(&msg, ns_s_an, trace, endline_s);
+	} else {
+		fprintf(trace, " from %s#%u: view none: query:", from, sport);
+
+		dump_dns_sect(&msg, ns_s_qd, trace, endline_s);
+		// In the end
+		if (ns_msg_getflag(msg,ns_f_rd))
+			putc('+', trace);
+		else
+			putc('-', trace);
+		if (ns_msg_getflag(msg,ns_f_cd))
+			putc('C', trace);
+	}
+/*
 	dump_dns_sect(&msg, ns_s_qd, trace, endline);
 	dump_dns_sect(&msg, ns_s_an, trace, endline);
 	dump_dns_sect(&msg, ns_s_ns, trace, endline);
 	dump_dns_sect(&msg, ns_s_ar, trace, endline);
+*/
 }
 
 static void
@@ -132,10 +155,10 @@ dump_dns_sect(ns_msg *msg, ns_sect sect, FILE *trace, const char *endline) {
 
 	rrmax = ns_msg_count(*msg, sect);
 	if (rrmax == 0) {
-		fputs(" 0", trace);
+		// fputs(" 0", trace);
 		return;
 	}
-	fprintf(trace, " %s%d", endline, rrmax);
+	//fprintf(trace, " %s%d", endline, rrmax);
 	sep = "";
 	for (rrnum = 0; rrnum < rrmax; rrnum++) {
 		if (ns_parserr(msg, sect, rrnum, &rr)) {
@@ -159,13 +182,21 @@ dump_dns_rr(ns_msg *msg, ns_rr *rr, ns_sect sect, FILE *trace) {
 
 	class = ns_rr_class(*rr);
 	type = ns_rr_type(*rr);
+/*
 	fprintf(trace, "%s,%s,%s",
 		ns_rr_name(*rr),
 		p_class(class),
 		p_type(type));
 	if (sect == ns_s_qd)
 		return;
-	fprintf(trace, ",%lu", (u_long)ns_rr_ttl(*rr));
+*/
+	if (sect == ns_s_qd)
+	{
+		fprintf(trace, "%s %s %s ", ns_rr_name(*rr),p_class(class),p_type(type));
+		return;
+	}
+
+	fprintf(trace, "%s. %lu %s %s", ns_rr_name(*rr), (u_long)ns_rr_ttl(*rr), p_class(class),p_type(type));
 	rd = ns_rr_rdata(*rr);
 	switch (type) {
 	case ns_t_soa:
@@ -173,21 +204,21 @@ dump_dns_rr(ns_msg *msg, ns_rr *rr, ns_sect sect, FILE *trace) {
 				       rd, buf, sizeof buf);
 		if (n < 0)
 			goto error;
-		putc(',', trace);
+		putc(' ', trace);
 		fputs(buf, trace);
 		rd += n;
 		n = ns_name_uncompress(ns_msg_base(*msg), ns_msg_end(*msg),
 				       rd, buf, sizeof buf);
 		if (n < 0)
 			goto error;
-		putc(',', trace);
+		putc(' ', trace);
 		fputs(buf, trace);
 		rd += n;
 		if (ns_msg_end(*msg) - rd < 5*NS_INT32SZ)
 			goto error;
 		for (n = 0; n < 5; n++)
 			MY_GET32(soa[n], rd);
-		sprintf(buf, "%u,%u,%u,%u,%u",
+		sprintf(buf, "%u %u %u %u %u",
 			soa[0], soa[1], soa[2], soa[3], soa[4]);
 		break;
 	case ns_t_a:
@@ -198,7 +229,7 @@ dump_dns_rr(ns_msg *msg, ns_rr *rr, ns_sect sect, FILE *trace) {
 		break;
 	case ns_t_mx:
 		MY_GET16(mx, rd);
-		fprintf(trace, ",%u", mx);
+		fprintf(trace, " %u", mx);
 		/* FALLTHROUGH */
 	case ns_t_ns:
 	case ns_t_ptr:
@@ -213,9 +244,10 @@ dump_dns_rr(ns_msg *msg, ns_rr *rr, ns_sect sect, FILE *trace) {
 		sprintf(buf, "[%u]", ns_rr_rdlen(*rr));
 	}
 	if (buf[0] != '\0') {
-		putc(',', trace);
+		putc(' ', trace);
 		fputs(buf, trace);
 	}
+	putc(';', trace);
 }
 
 static const char *
@@ -259,7 +291,8 @@ p_opcode(int opcode)
 
 void
 dump_dns(const u_char *payload, size_t paylen,
-          FILE *trace, const char *endline)
+          FILE *trace, const char *endline,
+		  char *from, char *to, unsigned sport, unsigned dport)
 {
 	(void) payload;
 	(void) paylen;
